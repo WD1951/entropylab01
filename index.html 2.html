@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>EntropyLab PRO Lite v0.3 — WD Tecnológico</title>
+<title>EntropyLab PRO Lite v0.4 — WD Tecnológico</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root{
@@ -93,7 +93,7 @@
 <div class="wrap">
 
   <header>
-    <h1>ENTROPYLAB <span>PRO</span> LITE <span style="font-size:.7rem;color:var(--mut)">v0.3</span></h1>
+    <h1>ENTROPYLAB <span>PRO</span> LITE <span style="font-size:.7rem;color:var(--mut)">v0.4</span></h1>
     <div class="brand">WD Tecnológico</div>
   </header>
 
@@ -151,19 +151,27 @@
       placeholder="15 dezenas, ex: 01 04 05 07 09 11 12 14 16 18 20 21 23 24 25"
       style="flex:1;min-width:260px;font-family:var(--mono);font-size:.78rem;padding:12px 14px;border-radius:8px;
              border:1px solid var(--line);background:var(--panel2);color:var(--txt)">
+    <button onclick="buscarResultado()">⟳ Buscar na Caixa</button>
     <button onclick="adicionarResultado()">＋ Adicionar à base</button>
   </div>
   <div id="conferencia" style="display:none;margin-bottom:10px"></div>
 
-  <!-- ══ SIMULAÇÕES · BACKTEST ══ -->
-  <h2>Simulações · Backtest</h2>
+  <!-- ══ SIMULAÇÕES · BACKTEST A/B/C ══ -->
+  <h2>Simulações · Backtest A/B/C</h2>
+  <div style="font-family:var(--mono);font-size:.62rem;color:var(--mut);margin-bottom:10px;line-height:1.8">
+    Três motores contra os mesmos resultados reais:
+    <span style="color:var(--teal)">■ A — motor EntropyLab</span> ·
+    <span style="color:#5BB8FF">■ B — motor + filtros clássicos</span> (soma 166–224 · repetição 7–11 · sequência 3–8) ·
+    <span style="color:var(--medio)">■ C — aleatório puro</span>.
+    Os filtros clássicos estão aqui como hipótese sob julgamento, não como ferramenta.
+  </div>
   <div class="toolbar">
     <select id="btN">
       <option value="25">Testar últimos 25 concursos</option>
       <option value="50" selected>Testar últimos 50 concursos</option>
       <option value="100">Testar últimos 100 concursos</option>
     </select>
-    <button onclick="rodarBacktest()">⚗ Rodar Backtest</button>
+    <button onclick="rodarBacktest()">⚗ Rodar Backtest A/B/C</button>
     <span id="btProg" style="font-family:var(--mono);font-size:.62rem;color:var(--mut)"></span>
   </div>
   <div id="btResultado" style="display:none">
@@ -183,7 +191,7 @@
   </div>
 
   <footer>
-    ENTROPYLAB PRO LITE v0.3 · WD TECNOLÓGICO · IE = 8 vetores descritivos
+    ENTROPYLAB PRO LITE v0.4 · WD TECNOLÓGICO · IE = 8 vetores descritivos
     (frequência · atraso · paridade · linhas · colunas · repetição · momento EWMA · moldura/miolo)
     + IP por jogo (antidivisão de prêmio).<br>
     O IE descreve o comportamento passado da série. Cada sorteio é um evento independente —
@@ -522,23 +530,38 @@ function copiarJogos(){
   navigator.clipboard.writeText(txt).then(()=>toast('Copiado'));
 }
 
-/* ═══════════════ BACKTEST — o software se auditando ═══════════════
-   Para cada um dos últimos N concursos:
-   · calcula o IE usando SOMENTE os concursos anteriores àquele;
-   · gera 10 jogos pelo motor (equilíbrio + IP);
-   · gera 10 jogos de controle, puramente aleatórios;
-   · confere ambos contra o resultado real.
-   Esperado combinatório: 9,00 acertos por jogo (15×15/25). */
+/* ═══════════════ BACKTEST A/B/C — o software se auditando ═══════════════
+   Para cada um dos últimos N concursos, três motores geram 10 jogos cada,
+   usando SOMENTE os concursos anteriores àquele:
+   A — motor EntropyLab (IE + equilíbrio + IP);
+   B — motor A + filtros clássicos do folclore (hipótese sob julgamento);
+   C — aleatório puro (controle).
+   Esperado combinatório para todos: 9,00 acertos por jogo (15×15/25). */
+
+/* Filtros clássicos: soma 166–224 · repetição 7–11 vs último · sequência máx 3–8 */
+function passaFiltrosClassicos(jogo, ultimo){
+  const soma=jogo.reduce((a,b)=>a+b,0);
+  if(soma<166||soma>224) return false;
+  const prev=new Set(ultimo);
+  const rep=jogo.filter(n=>prev.has(n)).length;
+  if(rep<7||rep>11) return false;
+  let run=1,mx=1;
+  for(let i=1;i<jogo.length;i++){run=jogo[i]===jogo[i-1]+1?run+1:1;if(run>mx)mx=run;}
+  return mx>=3 && mx<=8;
+}
+
 function jogoAleatorio(){
   const pool=[...Array(25)].map((_,i)=>i+1);
   for(let i=pool.length-1;i>0;i--){const k=Math.floor(Math.random()*(i+1));[pool[i],pool[k]]=[pool[k],pool[i]];}
   return pool.slice(0,15).sort((a,b)=>a-b);
 }
 
-function gerarDezJogos(ieArr, chaves){
+function gerarDezJogos(ieArr, chaves, filtroUltimo){
   const cand=new Map(); let guard=0;
-  while(cand.size<20 && guard++<200){
+  const alvo = filtroUltimo ? 20 : 20;
+  while(cand.size<alvo && guard++<600){
     const j=sortearCandidato(ieArr); if(!j)continue;
+    if(filtroUltimo && !passaFiltrosClassicos(j, filtroUltimo)) continue;
     cand.set(j.join(','), j);
   }
   return [...cand.values()].map(j=>{
@@ -554,67 +577,99 @@ function rodarBacktest(){
   if(sorteios.length < N+300){ toast('Base insuficiente para este backtest'); return; }
   const prog=document.getElementById('btProg');
   const inicio=sorteios.length-N;
-  // chaves históricas cumulativas até o ponto do tempo (sem enxergar o futuro)
   const chaves=new Set(sorteios.slice(0,inicio).map(s=>s.join(',')));
-  const distIE=new Array(16).fill(0), distRnd=new Array(16).fill(0);
-  let somaIE=0, somaRnd=0, melhorIE=0, melhorRnd=0, prem11IE=0, prem11Rnd=0;
+  // A=motor, B=motor+filtros, C=aleatório
+  const R={A:{d:new Array(16).fill(0),s:0,m:0,p11:0},
+           B:{d:new Array(16).fill(0),s:0,m:0,p11:0},
+           C:{d:new Array(16).fill(0),s:0,m:0,p11:0}};
+  function confere(jogos, resultado, r){
+    for(const j of jogos){
+      const ac=j.filter(n=>resultado.has(n)).length;
+      r.d[ac]++; r.s+=ac; if(ac>r.m)r.m=ac; if(ac>=11)r.p11++;
+    }
+  }
   let t=inicio;
-
   function passo(){
-    const lote=Math.min(t+5, sorteios.length);
+    const lote=Math.min(t+4, sorteios.length);
     for(; t<lote; t++){
       const passado=sorteios.slice(0,t);
+      const ultimo=passado[passado.length-1];
       const resultado=new Set(sorteios[t]);
       const {IE:ieT}=computeIE(passado, jan);
-      const jogosIE=gerarDezJogos(ieT, chaves);
-      for(const j of jogosIE){
-        const ac=j.filter(n=>resultado.has(n)).length;
-        distIE[ac]++; somaIE+=ac;
-        if(ac>melhorIE)melhorIE=ac; if(ac>=11)prem11IE++;
-      }
-      for(let k=0;k<10;k++){
-        const j=jogoAleatorio();
-        const ac=j.filter(n=>resultado.has(n)).length;
-        distRnd[ac]++; somaRnd+=ac;
-        if(ac>melhorRnd)melhorRnd=ac; if(ac>=11)prem11Rnd++;
-      }
+      confere(gerarDezJogos(ieT, chaves), resultado, R.A);
+      confere(gerarDezJogos(ieT, chaves, ultimo), resultado, R.B);
+      confere([...Array(10)].map(jogoAleatorio), resultado, R.C);
       chaves.add(sorteios[t].join(','));
     }
     prog.textContent=`processando ${t-inicio}/${N}…`;
     if(t<sorteios.length){ setTimeout(passo,0); }
-    else{ prog.textContent=''; renderBacktest(N,distIE,distRnd,somaIE,somaRnd,melhorIE,melhorRnd,prem11IE,prem11Rnd); }
+    else{ prog.textContent=''; renderBacktest(N,R); }
   }
   prog.textContent='processando…';
   setTimeout(passo,0);
 }
 
-function renderBacktest(N,dIE,dRnd,sIE,sRnd,mIE,mRnd,p11IE,p11Rnd){
+function renderBacktest(N,R){
   const tot=N*10;
   const box=document.getElementById('btResultado'); box.style.display='block';
-  const mediaIE=(sIE/tot), mediaRnd=(sRnd/tot);
+  const mA=R.A.s/tot, mB=R.B.s/tot, mC=R.C.s/tot;
   document.getElementById('btCards').innerHTML=`
-    <div class="card"><div class="lbl">Média · jogos IE</div><div class="val">${mediaIE.toFixed(2)}</div><div class="sub">acertos por jogo</div></div>
-    <div class="card"><div class="lbl">Média · aleatório</div><div class="val" style="color:var(--medio)">${mediaRnd.toFixed(2)}</div><div class="sub">grupo de controle</div></div>
-    <div class="card"><div class="lbl">Esperado teórico</div><div class="val" style="color:var(--mut)">9.00</div><div class="sub">15×15/25</div></div>
-    <div class="card"><div class="lbl">Prêmios (11+)</div><div class="val">${p11IE} <span style="color:var(--mut);font-size:.7rem">vs</span> ${p11Rnd}</div><div class="sub">IE vs aleatório · ${tot} jogos cada</div></div>`;
-  // histograma comparado 5..14
-  let h='<div style="font-family:var(--mono);font-size:.6rem;color:var(--mut);margin:8px 0 6px">DISTRIBUIÇÃO DE ACERTOS · <span style="color:var(--teal)">■ IE</span> · <span style="color:var(--medio)">■ aleatório</span></div>';
-  const mx=Math.max(...dIE,...dRnd)||1;
+    <div class="card"><div class="lbl">A · Motor</div><div class="val">${mA.toFixed(2)}</div><div class="sub">média · prêmios 11+: ${R.A.p11}</div></div>
+    <div class="card"><div class="lbl">B · Motor + Filtros</div><div class="val" style="color:#5BB8FF">${mB.toFixed(2)}</div><div class="sub">média · prêmios 11+: ${R.B.p11}</div></div>
+    <div class="card"><div class="lbl">C · Aleatório</div><div class="val" style="color:var(--medio)">${mC.toFixed(2)}</div><div class="sub">média · prêmios 11+: ${R.C.p11}</div></div>
+    <div class="card"><div class="lbl">Esperado teórico</div><div class="val" style="color:var(--mut)">9.00</div><div class="sub">hipergeométrica 25/15/15</div></div>`;
+  let h='<div style="font-family:var(--mono);font-size:.6rem;color:var(--mut);margin:8px 0 6px">DISTRIBUIÇÃO DE ACERTOS · <span style="color:var(--teal)">■ A</span> · <span style="color:#5BB8FF">■ B</span> · <span style="color:var(--medio)">■ C</span></div>';
+  const mx=Math.max(...R.A.d,...R.B.d,...R.C.d)||1;
   for(let a=5;a<=14;a++){
-    h+=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px;font-family:var(--mono);font-size:.6rem">
+    h+=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;font-family:var(--mono);font-size:.6rem">
       <span style="width:20px;color:var(--mut)">${a}</span>
-      <div style="flex:1"><div style="height:6px;border-radius:3px;background:var(--teal);width:${dIE[a]/mx*100}%"></div>
-      <div style="height:6px;border-radius:3px;background:var(--medio);width:${dRnd[a]/mx*100}%;margin-top:2px;opacity:.7"></div></div>
-      <span style="width:70px;color:var(--mut);text-align:right">${dIE[a]} · ${dRnd[a]}</span></div>`;
+      <div style="flex:1">
+        <div style="height:5px;border-radius:3px;background:var(--teal);width:${R.A.d[a]/mx*100}%"></div>
+        <div style="height:5px;border-radius:3px;background:#5BB8FF;width:${R.B.d[a]/mx*100}%;margin-top:2px"></div>
+        <div style="height:5px;border-radius:3px;background:var(--medio);width:${R.C.d[a]/mx*100}%;margin-top:2px;opacity:.75"></div>
+      </div>
+      <span style="width:96px;color:var(--mut);text-align:right">${R.A.d[a]} · ${R.B.d[a]} · ${R.C.d[a]}</span></div>`;
   }
   document.getElementById('btHisto').innerHTML=h;
-  const dif=mediaIE-mediaRnd;
-  const veredicto = Math.abs(dif)<0.15
-    ? `As duas médias são estatisticamente indistinguíveis (diferença de ${dif>=0?'+':''}${dif.toFixed(3)}). O IE não previu o futuro — como o rodapé sempre avisou. O valor do motor está no equilíbrio estrutural e no IP antidivisão, não em acertar mais.`
-    : `Diferença de ${dif>=0?'+':''}${dif.toFixed(3)} acertos por jogo nesta amostra. Cautela: com ${N*10} jogos, flutuações dessa ordem acontecem por puro acaso. Rode o backtest de novo e observe se o sinal persiste — provavelmente não persistirá.`;
+  const spread=Math.max(mA,mB,mC)-Math.min(mA,mB,mC);
+  const veredicto = spread<0.2
+    ? `Empate técnico entre os três motores (amplitude de ${spread.toFixed(3)} acertos). Os filtros clássicos não acrescentaram nada — como a hipergeométrica prevê: todo jogo de 15 dezenas tem a mesma distribuição de acertos, e filtrar composições "típicas" apenas descarta bilhetes igualmente prováveis. O que diferencia jogos é a divisão do prêmio (IP), nunca a chance de acerto.`
+    : `Amplitude de ${spread.toFixed(3)} acertos entre os motores nesta amostra de ${tot} jogos por braço. Flutuações dessa ordem ocorrem por acaso — rode novamente e observe: a ordem dos motores tende a se embaralhar, o que é a assinatura do ruído, não de um método.`;
   document.getElementById('btVeredicto').innerHTML=
-    `<b style="color:var(--teal)">VEREDICTO</b> · ${N} concursos · ${N*10} jogos IE contra ${N*10} aleatórios<br>${veredicto}<br>
-     Melhor jogo IE: ${mIE} acertos · melhor aleatório: ${mRnd} acertos.`;
+    `<b style="color:var(--teal)">VEREDICTO</b> · ${N} concursos · 10 jogos por motor por concurso<br>${veredicto}<br>
+     Melhor jogo — A: ${R.A.m} · B: ${R.B.m} · C: ${R.C.m} acertos.`;
+}
+
+/* ═══════════════ BUSCAR RESULTADO — API da Caixa com fallback ═══════════════
+   Tenta o endpoint oficial (frequentemente bloqueia navegador por CORS)
+   e, se falhar, uma API comunitária. Se ambas falharem, o campo manual
+   continua funcionando — degradação elegante. */
+async function buscarResultado(){
+  const alvo = sorteios.length+1;
+  toast('Buscando concurso '+alvo+'…');
+  const fontes = [
+    {url:`https://servicebus2.caixa.gov.br/portaldeloterias/api/lotofacil/${alvo}`,
+     parse:d=>({conc:d.numero, dez:(d.listaDezenas||d.dezenasSorteadasOrdemSorteio||[]).map(Number)})},
+    {url:`https://loteriascaixa-api.herokuapp.com/api/lotofacil/${alvo}`,
+     parse:d=>({conc:d.concurso, dez:(d.dezenas||[]).map(Number)})}
+  ];
+  for(const f of fontes){
+    try{
+      const r=await fetch(f.url,{signal:AbortSignal.timeout(8000)});
+      if(!r.ok) continue;
+      const {conc,dez}=f.parse(await r.json());
+      if(dez.length!==15) continue;
+      if(conc && conc!==alvo){
+        toast(conc<alvo ? 'Concurso '+alvo+' ainda não sorteado' : 'API retornou o '+conc+' — há lacuna na base');
+        return;
+      }
+      document.getElementById('resultadoInput').value=
+        dez.sort((a,b)=>a-b).map(n=>String(n).padStart(2,'0')).join(' ');
+      toast('Concurso '+alvo+' carregado — confira e toque em Adicionar');
+      return;
+    }catch(e){ /* tenta a próxima fonte */ }
+  }
+  toast('APIs indisponíveis no navegador — cole as dezenas manualmente');
 }
 
 /* ═══════════════ EXPORTAR BASE ═══════════════
