@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>EntropyLab PRO Lite v0.5.1 — WD Tecnológico</title>
+<title>EntropyLab PRO Lite v0.6.1 — WD Tecnológico</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root{
@@ -93,7 +93,7 @@
 <div class="wrap">
 
   <header>
-    <h1>ENTROPYLAB <span>PRO</span> LITE <span style="font-size:.7rem;color:var(--mut)">v0.5.1</span></h1>
+    <h1>ENTROPYLAB <span>PRO</span> LITE <span style="font-size:.7rem;color:var(--mut)">v0.6.1</span></h1>
     <div class="brand">WD Tecnológico</div>
   </header>
 
@@ -119,6 +119,16 @@
     <button onclick="recalc();toast('IE recalculado')">↻ Calcular</button>
     <button onclick="exportarBase()">⬇ Exportar Base</button>
     <button class="primary" onclick="gerarJogos()">▶ Gerar 10 Jogos</button>
+  </div>
+
+  <!-- ══ COMPOSIÇÃO ══ -->
+  <div class="toolbar" style="margin-bottom:8px;align-items:stretch">
+    <input type="text" id="fixasInput" inputmode="numeric" placeholder="Fixar dezenas (ex: 03)"
+      style="flex:1;min-width:150px;font-family:var(--mono);font-size:.72rem;padding:11px 12px;border-radius:8px;
+             border:1px solid var(--line);background:var(--panel2);color:var(--teal)">
+    <input type="text" id="excluidasInput" inputmode="numeric" placeholder="Excluir dezenas (ex: 01 02)"
+      style="flex:1;min-width:150px;font-family:var(--mono);font-size:.72rem;padding:11px 12px;border-radius:8px;
+             border:1px solid var(--line);background:var(--panel2);color:var(--fraco)">
   </div>
 
   <!-- ══ PESOS DOS VETORES ══ -->
@@ -191,7 +201,7 @@
   </div>
 
   <footer>
-    ENTROPYLAB PRO LITE v0.5.1 · WD TECNOLÓGICO · IE = 8 vetores descritivos
+    ENTROPYLAB PRO LITE v0.6.1 · WD TECNOLÓGICO · IE = 8 vetores descritivos
     (frequência · atraso · paridade · linhas · colunas · repetição · momento EWMA · moldura/miolo)
     + IP por jogo (antidivisão de prêmio).<br>
     O IE descreve o comportamento passado da série. Cada sorteio é um evento independente —
@@ -448,11 +458,13 @@ function renderRank(){
    score = 0,6·IE_normalizado − 0,4·IP_normalizado, entrega os 10 melhores. */
 let jogosGerados=[];
 
-function sortearCandidato(ieArr){
+function sortearCandidato(ieArr, fixas, excluidas){
   const src = ieArr || IE;
+  const fix = fixas || [], exc = excluidas ? new Set(excluidas) : new Set();
   for(let tent=0;tent<400;tent++){
-    const pool=[...Array(25)].map((_,i)=>({n:i+1,w:Math.pow(src[i]/100,2)+.05}));
-    const jogo=[];
+    const pool=[...Array(25)].map((_,i)=>({n:i+1,w:Math.pow(src[i]/100,2)+.05}))
+      .filter(p=>!exc.has(p.n) && !fix.includes(p.n));
+    const jogo=[...fix];
     while(jogo.length<15){
       const tot=pool.reduce((s,p)=>s+p.w,0);
       let r=Math.random()*tot, k=0;
@@ -470,13 +482,26 @@ function sortearCandidato(ieArr){
   return null;
 }
 
+function lerDezenas(id){
+  const raw=document.getElementById(id).value;
+  return [...new Set((raw.match(/\d{1,2}/g)||[]).map(Number).filter(n=>n>=1&&n<=25))];
+}
+
 function gerarJogos(){
   calcularIE();
+  const fixas=lerDezenas('fixasInput');
+  const excluidas=lerDezenas('excluidasInput').filter(n=>!fixas.includes(n));
+  if(fixas.length>10){ toast('Máximo de 10 dezenas fixas'); return; }
+  if(25-excluidas.length<15){ toast('Excluídas demais: restam menos de 15 dezenas'); return; }
   const cand=new Map();
   let guard=0;
-  while(cand.size<60 && guard++<400){
-    const j=sortearCandidato(); if(!j)continue;
+  while(cand.size<60 && guard++<800){
+    const j=sortearCandidato(IE, fixas, excluidas); if(!j)continue;
     cand.set(j.join(','), j);
+  }
+  if(cand.size===0){
+    toast('Composição impossível: fixas/excluídas violam o equilíbrio de linhas, colunas ou paridade');
+    return;
   }
   const lista=[...cand.values()].map(j=>{
     const ieJogo=j.reduce((s,n)=>s+IE[n-1],0)/15;
@@ -502,7 +527,9 @@ function gerarJogos(){
     box.appendChild(div);
   });
   document.getElementById('copyBar').style.display='flex';
-  toast('10 jogos gerados (60 candidatos avaliados)');
+  const comp = (fixas.length?' · fixas: '+fixas.map(n=>String(n).padStart(2,'0')).join(' '):'')+
+               (excluidas.length?' · excluídas: '+excluidas.map(n=>String(n).padStart(2,'0')).join(' '):'');
+  toast(jogosGerados.length+' jogos gerados'+comp);
 }
 
 function copiarJogos(){
@@ -562,10 +589,11 @@ function rodarBacktest(){
   const R={A:{d:new Array(16).fill(0),s:0,m:0,p11:0},
            B:{d:new Array(16).fill(0),s:0,m:0,p11:0},
            C:{d:new Array(16).fill(0),s:0,m:0,p11:0}};
-  function confere(jogos, resultado, r){
+  function confere(jogos, resultado, r, concNum, resArr){
     for(const j of jogos){
       const ac=j.filter(n=>resultado.has(n)).length;
-      r.d[ac]++; r.s+=ac; if(ac>r.m)r.m=ac; if(ac>=11)r.p11++;
+      r.d[ac]++; r.s+=ac; if(ac>=11)r.p11++;
+      if(ac>r.m){ r.m=ac; r.mj=j; r.mc=concNum; r.mr=resArr; }
     }
   }
   let t=inicio;
@@ -576,9 +604,9 @@ function rodarBacktest(){
       const ultimo=passado[passado.length-1];
       const resultado=new Set(sorteios[t]);
       const {IE:ieT}=computeIE(passado, jan);
-      confere(gerarDezJogos(ieT, chaves), resultado, R.A);
-      confere(gerarDezJogos(ieT, chaves, ultimo), resultado, R.B);
-      confere([...Array(10)].map(jogoAleatorio), resultado, R.C);
+      confere(gerarDezJogos(ieT, chaves), resultado, R.A, t+1, sorteios[t]);
+      confere(gerarDezJogos(ieT, chaves, ultimo), resultado, R.B, t+1, sorteios[t]);
+      confere([...Array(10)].map(jogoAleatorio), resultado, R.C, t+1, sorteios[t]);
       chaves.add(sorteios[t].join(','));
     }
     prog.textContent=`processando ${t-inicio}/${N}…`;
@@ -618,6 +646,22 @@ function renderBacktest(N,R){
   document.getElementById('btVeredicto').innerHTML=
     `<b style="color:var(--teal)">VEREDICTO</b> · ${N} concursos · 10 jogos por motor por concurso<br>${veredicto}<br>
      Melhor jogo — A: ${R.A.m} · B: ${R.B.m} · C: ${R.C.m} acertos.`;
+
+  // vitrine dos melhores jogos da simulação
+  const cores={A:'var(--teal)',B:'#5BB8FF',C:'var(--medio)'};
+  const nomes={A:'Motor',B:'Motor+Filtros',C:'Aleatório'};
+  let v='<div style="font-family:var(--mono);font-size:.62rem;color:var(--mut);letter-spacing:.14em;text-transform:uppercase;margin:16px 0 8px">Melhores jogos da simulação</div>';
+  for(const k of ['A','B','C']){
+    const r=R[k]; if(!r.mj) continue;
+    const set=new Set(r.mr);
+    v+=`<div class="jogo" style="border-color:${cores[k]}44">
+      <span class="idx" style="color:${cores[k]}">${k}</span>
+      <span class="nums">${r.mj.map(n=>set.has(n)?'<b style="color:var(--teal)">'+String(n).padStart(2,'0')+'</b>':String(n).padStart(2,'0')).join(' ')}</span>
+      <span class="meta">${nomes[k]} · concurso Nº ${r.mc} · ${r.m} acertos</span>
+    </div>`;
+  }
+  v+='<div style="font-family:var(--mono);font-size:.58rem;color:var(--mut);margin-top:6px">Registro histórico da simulação — cada jogo foi gerado só com dados anteriores ao seu concurso e conferido contra ele. Não é recomendação de aposta: contra o próximo sorteio, vale o mesmo que qualquer bilhete.</div>';
+  document.getElementById('btVeredicto').innerHTML += v;
 }
 
 /* ═══════════════ SINCRONIZAÇÃO EM CASCATA ═══════════════
