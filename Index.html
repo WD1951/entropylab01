@@ -3,10 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>EntropyLab PRO Lite v0.6.1 — WD Tecnológico</title>
+<title>EntropyLab PRO Lite v0.7 — WD Tecnológico</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root{
+    --rep:#b48cff;
     --bg:#070b0c; --panel:#0d1416; --panel2:#111a1d; --line:#1b2a2e;
     --teal:#00D4A0; --txt:#d7e4e2; --mut:#5d7a76;
     --forte:#00D4A0; --medio:#e8c547; --fraco:#e05d5d;
@@ -93,7 +94,7 @@
 <div class="wrap">
 
   <header>
-    <h1>ENTROPYLAB <span>PRO</span> LITE <span style="font-size:.7rem;color:var(--mut)">v0.6.1</span></h1>
+    <h1>ENTROPYLAB <span>PRO</span> LITE <span style="font-size:.7rem;color:var(--mut)">v0.7</span></h1>
     <div class="brand">WD Tecnológico</div>
   </header>
 
@@ -201,7 +202,7 @@
   </div>
 
   <footer>
-    ENTROPYLAB PRO LITE v0.6.1 · WD TECNOLÓGICO · IE = 8 vetores descritivos
+    ENTROPYLAB PRO LITE v0.7 · WD TECNOLÓGICO · IE = 8 vetores descritivos
     (frequência · atraso · paridade · linhas · colunas · repetição · momento EWMA · moldura/miolo)
     + IP por jogo (antidivisão de prêmio).<br>
     O IE descreve o comportamento passado da série. Cada sorteio é um evento independente —
@@ -231,6 +232,40 @@ function decodePacked(){
   chavesHistoricas = new Set(sorteios.map(s=>s.join(',')));
 }
 
+/* ═══════════════ MEMÓRIA LOCAL (blindada) ═══════════════
+   Grava no navegador os concursos sincronizados além da base embutida.
+   Onde o armazenamento for bloqueado (pré-visualizações, modo restrito),
+   as salvaguardas fazem tudo degradar em silêncio — nada quebra. */
+const EMBED_N = (PACKED.length/30)|0;
+const CACHE_KEY = 'entropylab_extra_'+EMBED_N;
+
+function salvarCache(){
+  try{
+    const extras=sorteios.slice(EMBED_N);
+    if(!extras.length){ localStorage.removeItem(CACHE_KEY); return; }
+    localStorage.setItem(CACHE_KEY, extras.map(s=>s.map(n=>String(n).padStart(2,'0')).join('')).join(''));
+  }catch(e){ /* armazenamento indisponível — segue sem memória local */ }
+}
+
+function limparCache(){ try{ localStorage.removeItem(CACHE_KEY); }catch(e){} }
+
+function carregarCache(){
+  try{
+    const raw=localStorage.getItem(CACHE_KEY);
+    if(!raw || raw.length%30!==0) return 0;
+    let add=0;
+    for(let i=0;i<raw.length;i+=30){
+      const jogo=[];
+      for(let j=0;j<30;j+=2) jogo.push(parseInt(raw.substr(i+j,2),10));
+      if(jogo.length===15 && new Set(jogo).size===15 && jogo.every(n=>n>=1&&n<=25)){
+        sorteios.push(jogo); chavesHistoricas.add(jogo.join(',')); add++;
+      }
+    }
+    if(add){ ultimaData='memória local'; fonte='base + memória local'; }
+    return add;
+  }catch(e){ return 0; }
+}
+
 /* ═══════════════ GEOMETRIA DO VOLANTE ═══════════════ */
 const LINHA  = n => Math.floor((n-1)/5);
 const COLUNA = n => (n-1)%5;
@@ -238,14 +273,14 @@ const MOLDURA = n => LINHA(n)===0||LINHA(n)===4||COLUNA(n)===0||COLUNA(n)===4; /
 
 /* ═══════════════ PESOS (ajustáveis) ═══════════════ */
 const VETORES = [
-  {k:'f', nome:'Frequência',    peso:22},
-  {k:'a', nome:'Atraso',        peso:18},
-  {k:'p', nome:'Paridade',      peso:12},
-  {k:'l', nome:'Linhas',        peso:12},
+  {k:'f', nome:'Frequência',    peso:20},
+  {k:'a', nome:'Atraso',        peso:20},
+  {k:'p', nome:'Paridade',      peso:6},
+  {k:'l', nome:'Linhas',        peso:10},
   {k:'c', nome:'Colunas',       peso:12},
-  {k:'r', nome:'Repetição',     peso:8},
-  {k:'m', nome:'Momento EWMA',  peso:10},
-  {k:'g', nome:'Moldura/Miolo', peso:6},
+  {k:'r', nome:'Repetição',     peso:6},
+  {k:'m', nome:'Momento EWMA',  peso:18},
+  {k:'g', nome:'Moldura/Miolo', peso:8},
 ];
 
 function renderPesos(){
@@ -266,16 +301,34 @@ function renderPesos(){
    "como se fosse ontem", sem enxergar o futuro. */
 let IE = [], VET = [];
 
+/* Percentil entre as 25 dezenas: transforma valores brutos em ranks 0..1
+   (empates recebem a média dos ranks). Aplica-se aos vetores contínuos —
+   Frequência, Atraso e Momento — para que cada um contribua pela sua
+   forma, não pela amplitude arbitrária. */
+function percentil25(raw){
+  const idx=[...Array(25).keys()].sort((a,b)=>raw[a]-raw[b]);
+  const rank=new Array(25);
+  let i=0;
+  while(i<25){
+    let j=i;
+    while(j+1<25 && raw[idx[j+1]]===raw[idx[i]]) j++;
+    const media=(i+j)/2;
+    for(let k=i;k<=j;k++) rank[idx[k]]=media/24;
+    i=j+1;
+  }
+  return rank;
+}
+
 function computeIE(serie, jan){
   const base = jan>0 ? serie.slice(-jan) : serie;
   const T = base.length, dezTot = T*15;
   const ultimo = serie[serie.length-1];
 
-  // V1 frequência na janela
+  // V1 frequência na janela — percentil
   const freq = new Array(26).fill(0);
   base.forEach(s=>s.forEach(n=>freq[n]++));
-  const fMax=Math.max(...freq.slice(1)), fMin=Math.min(...freq.slice(1));
-  const vF = n => fMax===fMin ? .5 : (freq[n]-fMin)/(fMax-fMin);
+  const pctF = percentil25(freq.slice(1));
+  const vF = n => pctF[n-1];
 
   // V2 atraso (série recebida completa)
   const atraso = new Array(26).fill(serie.length);
@@ -284,8 +337,8 @@ function computeIE(serie, jan){
       if(serie[i].includes(n)){atraso[n]=serie.length-1-i;break;}
     }
   }
-  const aMax=Math.max(...atraso.slice(1));
-  const vA = n => aMax===0 ? 0 : atraso[n]/aMax;
+  const pctA = percentil25(atraso.slice(1));
+  const vA = n => pctA[n-1];
 
   // V3 paridade
   let imparesTot=0;
@@ -318,7 +371,8 @@ function computeIE(serie, jan){
     const set=new Set(s);
     for(let n=1;n<=25;n++) ewma[n]=LB*ewma[n]+(1-LB)*(set.has(n)?1:0);
   });
-  const vM = n => .5 + (ewma[n]-0.6)*4;
+  const pctM = percentil25(ewma.slice(1));
+  const vM = n => pctM[n-1];
 
   // V8 moldura/miolo
   let moldTot=0;
@@ -513,7 +567,7 @@ function gerarJogos(){
   const ultimoSet=new Set(sorteios[sorteios.length-1]);
   const box=document.getElementById('jogos'); box.innerHTML='';
   box.innerHTML='<div style="font-family:var(--mono);font-size:.6rem;color:var(--mut);margin-bottom:8px">'+
-    '<span style="color:var(--medio);font-weight:700">■ âmbar</span> = dezena repetida do último sorteio (Nº '+sorteios.length+') · rep = total de repetidas</div>';
+    '<span style="color:var(--rep);font-weight:700">■ lilás</span> = dezena repetida do último sorteio (Nº '+sorteios.length+') · rep = total de repetidas</div>';
   lista.forEach((x,i)=>{
     const imp=x.j.filter(n=>n%2).length;
     const soma=x.j.reduce((a,b)=>a+b,0);
@@ -521,7 +575,7 @@ function gerarJogos(){
     const cls = x.ip<20?'b':x.ip<45?'m':'a';
     const div=document.createElement('div'); div.className='jogo';
     div.innerHTML=`<span class="idx">J${String(i+1).padStart(2,'0')}</span>
-      <span class="nums">${x.j.map(n=>ultimoSet.has(n)?'<b style="color:var(--medio)">'+String(n).padStart(2,'0')+'</b>':String(n).padStart(2,'0')).join(' ')}</span>
+      <span class="nums">${x.j.map(n=>ultimoSet.has(n)?'<b style="color:var(--rep)">'+String(n).padStart(2,'0')+'</b>':String(n).padStart(2,'0')).join(' ')}</span>
       <span class="meta">${imp}Í/${15-imp}P · Σ${soma} · rep ${rep}</span>
       <span class="ip ${cls}">IP ${x.ip}</span>`;
     box.appendChild(div);
@@ -764,6 +818,7 @@ function absorverResultado(resultado){
   chavesHistoricas.add(resultado.join(','));
   ultimaData='sincronizado';
   fonte='base + sincronização';
+  salvarCache();
 }
 
 /* ═══════════════ EXPORTAR BASE ═══════════════
@@ -801,6 +856,7 @@ document.getElementById('fileInput').addEventListener('change', e=>{
       if(novos.length<10) throw new Error('Menos de 10 linhas válidas encontradas.');
       sorteios=novos;
       chavesHistoricas=new Set(sorteios.map(s=>s.join(',')));
+      limparCache();
       fonte=`importado: ${f.name}`;
       ultimaData='(arquivo importado)';
       recalc(); toast(`${novos.length} concursos importados`);
@@ -817,7 +873,12 @@ function toast(msg){
   clearTimeout(t._h); t._h=setTimeout(()=>t.style.display='none',2200);
 }
 
-decodePacked(); renderPesos(); recalc();
+decodePacked();
+const restaurados = carregarCache();
+renderPesos(); recalc();
+if(restaurados) toast(restaurados+' concurso'+(restaurados>1?'s':'')+' restaurado'+(restaurados>1?'s':'')+' da memória local');
+/* auto-sincronização: só onde a página tem licença de rede (http/https) */
+if(location.protocol.startsWith('http')) setTimeout(sincronizar, 800);
 </script>
 </body>
 </html>
